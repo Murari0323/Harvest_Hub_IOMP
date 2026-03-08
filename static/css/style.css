@@ -1,0 +1,130 @@
+/* ============================================================
+   HarvestHub — Custom Styles
+   Built on top of Bootstrap 5
+   ============================================================ */
+
+/* ── Global ─────────────────────────────────────────────────── */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f8f9fa;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+main {
+    flex: 1;
+}
+
+/* ── Hero Section ───────────────────────────────────────────── */
+.hero-section {
+    background: linear-gradient(135deg, #198754 0%, #0d6e3e 50%, #145a32 100%);
+    position: relative;
+    overflow: hidden;
+}
+
+.hero-section::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -20%;
+    width: 500px;
+    height: 500px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 50%;
+}
+
+/* ── Feature Cards ──────────────────────────────────────────── */
+.feature-card {
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    border-radius: 12px;
+}
+
+.feature-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.12) !important;
+}
+
+.feature-icon {
+    width: 80px;
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+}
+
+/* ── Step Circles ───────────────────────────────────────────── */
+.step-circle {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.3rem;
+    font-weight: bold;
+}
+
+/* ── Crop Cards (Marketplace) ───────────────────────────────── */
+.crop-card {
+    border-radius: 12px;
+    overflow: hidden;
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.crop-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* ── Status Badges ──────────────────────────────────────────── */
+.badge {
+    font-weight: 500;
+    letter-spacing: 0.3px;
+}
+
+/* ── Card forms ─────────────────────────────────────────────── */
+.card {
+    border-radius: 12px;
+}
+
+.card-body .form-control,
+.card-body .form-select {
+    border-radius: 8px;
+}
+
+/* ── Navbar tweaks ──────────────────────────────────────────── */
+.navbar-brand {
+    font-size: 1.35rem;
+}
+
+/* ── Footer ─────────────────────────────────────────────────── */
+footer {
+    margin-top: auto;
+}
+
+/* ── Delete confirm animation ───────────────────────────────── */
+.delete-form button {
+    transition: background-color 0.2s ease;
+}
+
+/* ── Result Cards (Recommend/Predict) ───────────────────────── */
+.border-start.border-4 {
+    border-width: 5px !important;
+}
+
+/* ── Responsive adjustments ─────────────────────────────────── */
+@media (max-width: 768px) {
+    .hero-section {
+        padding: 2rem 1rem !important;
+    }
+
+    .hero-section h1 {
+        font-size: 1.8rem;
+    }
+
+    .display-3 {
+        font-size: 2rem;
+    }
+}

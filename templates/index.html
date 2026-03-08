@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}HarvestHub — Farm to Table, Powered by AI{% endblock %}
+
+{% block content %}
+<!-- Hero Section -->
+<section class="hero-section text-center text-white rounded-4 p-5 mb-5">
+    <div class="py-5">
+        <h1 class="display-4 fw-bold mb-3">
+            <i class="bi bi-tree"></i> Welcome to HarvestHub
+        </h1>
+        <p class="lead mb-4">
+            AI-driven platform connecting farmers directly with buyers.<br>
+            Smart crop recommendations &bull; Price predictions &bull; Zero middlemen.
+        </p>
+        <div class="d-flex justify-content-center gap-3">
+            {% if not session.get('user_id') %}
+            <a href="{{ url_for('register') }}" class="btn btn-light btn-lg px-4">
+                <i class="bi bi-person-plus"></i> Get Started
+            </a>
+            <a href="{{ url_for('login') }}" class="btn btn-outline-light btn-lg px-4">
+                <i class="bi bi-box-arrow-in-right"></i> Login
+            </a>
+            {% else %}
+            <a href="{{ url_for('marketplace') }}" class="btn btn-light btn-lg px-4">
+                <i class="bi bi-shop"></i> Browse Marketplace
+            </a>
+            {% endif %}
+        </div>
+    </div>
+</section>
+
+<!-- Feature Cards -->
+<section class="mb-5">
+    <h2 class="text-center mb-4">Why Choose HarvestHub?</h2>
+    <div class="row g-4">
+        <div class="col-md-4">
+            <div class="card feature-card h-100 border-0 shadow-sm text-center p-4">
+                <div class="card-body">
+                    <div class="feature-icon bg-success-subtle text-success rounded-circle mx-auto mb-3">
+                        <i class="bi bi-shop fs-1"></i>
+                    </div>
+                    <h5 class="card-title">Direct Marketplace</h5>
+                    <p class="card-text text-muted">
+                        Farmers sell directly to buyers — no middlemen, better prices for everyone.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card feature-card h-100 border-0 shadow-sm text-center p-4">
+                <div class="card-body">
+                    <div class="feature-icon bg-warning-subtle text-warning rounded-circle mx-auto mb-3">
+                        <i class="bi bi-lightbulb fs-1"></i>
+                    </div>
+                    <h5 class="card-title">AI Crop Recommendation</h5>
+                    <p class="card-text text-muted">
+                        Get smart crop suggestions based on your soil, weather, and season.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card feature-card h-100 border-0 shadow-sm text-center p-4">
+                <div class="card-body">
+                    <div class="feature-icon bg-info-subtle text-info rounded-circle mx-auto mb-3">
+                        <i class="bi bi-graph-up-arrow fs-1"></i>
+                    </div>
+                    <h5 class="card-title">Price Prediction</h5>
+                    <p class="card-text text-muted">
+                        Predict future crop prices using machine learning on historical data.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- How It Works -->
+<section class="mb-5">
+    <h2 class="text-center mb-4">How It Works</h2>
+    <div class="row g-4 text-center">
+        <div class="col-md-3">
+            <div class="step-circle bg-success text-white mx-auto mb-3">1</div>
+            <h6>Register</h6>
+            <p class="text-muted small">Sign up as a Farmer or Buyer</p>
+        </div>
+        <div class="col-md-3">
+            <div class="step-circle bg-success text-white mx-auto mb-3">2</div>
+            <h6>List / Browse</h6>
+            <p class="text-muted small">Farmers add crops, buyers browse</p>
+        </div>
+        <div class="col-md-3">
+            <div class="step-circle bg-success text-white mx-auto mb-3">3</div>
+            <h6>Get AI Insights</h6>
+            <p class="text-muted small">Recommendations & price predictions</p>
+        </div>
+        <div class="col-md-3">
+            <div class="step-circle bg-success text-white mx-auto mb-3">4</div>
+            <h6>Trade</h6>
+            <p class="text-muted small">Place orders and track delivery</p>
+        </div>
+    </div>
+</section>
+{% endblock %}
