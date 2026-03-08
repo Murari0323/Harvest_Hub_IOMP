@@ -171,7 +171,7 @@ A **Linear Regression model** trained on historical crop price data (`data/crop_
 
 | Name            | Role                  |
 |-----------------|-----------------------|
-| Your Name       | Full-Stack Developer  |
+| C Murari        | Full-Stack Developer  |
 
 ---
 
