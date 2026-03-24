@@ -2,15 +2,20 @@
 {% block title %}Price Prediction — HarvestHub{% endblock %}
 
 {% block content %}
+<!-- Page Header -->
+<div class="page-header mb-4 fade-in" style="background: linear-gradient(135deg, #0c4a6e, #0891b2);">
+    <h2><i class="bi bi-graph-up-arrow"></i> Crop Price Prediction</h2>
+    <p class="mb-0 mt-1" style="opacity:0.8; font-size:0.95rem;">Predict future crop prices using our ML model trained on historical data.</p>
+</div>
+
 <div class="row">
     <!-- Input Form -->
-    <div class="col-md-5 mb-4">
-        <div class="card shadow-sm border-0">
+    <div class="col-md-5 mb-4 slide-left">
+        <div class="card glass-card border-0">
             <div class="card-body p-4">
-                <h3 class="mb-4">
-                    <i class="bi bi-graph-up-arrow text-info"></i> Crop Price Prediction
-                </h3>
-                <p class="text-muted">Predict future crop prices using our Linear Regression model trained on historical data.</p>
+                <h4 class="mb-4" style="font-family:'Outfit',sans-serif;">
+                    <i class="bi bi-cpu text-info"></i> Prediction Input
+                </h4>
 
                 <form method="POST" action="{{ url_for('price_prediction') }}" id="predictForm">
                     <div class="mb-3">
@@ -58,13 +63,13 @@
     </div>
 
     <!-- Prediction Result -->
-    <div class="col-md-7 mb-4">
+    <div class="col-md-7 mb-4 slide-right">
         {% if prediction %}
-        <div class="card shadow border-0 border-start border-4 border-info">
+        <div class="card result-card border-0 border-start border-4 border-info">
             <div class="card-body p-4 text-center">
-                <i class="bi bi-graph-up-arrow display-1 text-info"></i>
-                <h3 class="mt-3">Predicted Price</h3>
-                <h1 class="display-3 fw-bold text-info my-3">
+                <i class="bi bi-graph-up-arrow display-1 text-info result-pulse"></i>
+                <h3 class="mt-3" style="font-family:'Outfit',sans-serif;">Predicted Price</h3>
+                <h1 class="display-3 fw-bold text-info my-3" style="font-family:'Outfit',sans-serif;">
                     ₹{{ "%.2f"|format(prediction.price) }}
                 </h1>
                 <p class="text-muted fs-5">
@@ -85,10 +90,10 @@
             </div>
         </div>
         {% else %}
-        <div class="card shadow-sm border-0 bg-light">
+        <div class="card glass-card border-0">
             <div class="card-body p-5 text-center text-muted">
-                <i class="bi bi-bar-chart-line display-3 d-block mb-3"></i>
-                <h5>Select a crop and target date</h5>
+                <i class="bi bi-bar-chart-line display-3 d-block mb-3" style="color: #0891b2; opacity:0.4;"></i>
+                <h5 style="font-family:'Outfit',sans-serif;">Select a crop and target date</h5>
                 <p>Our ML model will predict the expected price based on historical trends.</p>
                 <small>Model trained on data from 2020–2024 for Rice, Wheat, Maize, Cotton, and Sugarcane.</small>
             </div>

@@ -3,16 +3,17 @@
 
 {% block content %}
 <!-- Hero Section -->
-<section class="hero-section text-center text-white rounded-4 p-5 mb-5">
+<section class="hero-section text-center text-white" id="heroSection">
+    <!-- Floating particles -->
+    <div class="particles-container" id="particles"></div>
     <div class="py-5">
-        <h1 class="display-4 fw-bold mb-3">
+        <h1 class="display-4 fw-bold mb-3 fade-in">
             <i class="bi bi-tree"></i> Welcome to HarvestHub
         </h1>
-        <p class="lead mb-4">
-            AI-driven platform connecting farmers directly with buyers.<br>
-            Smart crop recommendations &bull; Price predictions &bull; Zero middlemen.
+        <p class="lead mb-4 fade-in" style="transition-delay:0.2s;">
+            <span id="typewriterText"></span><span class="typewriter">&nbsp;</span>
         </p>
-        <div class="d-flex justify-content-center gap-3">
+        <div class="d-flex justify-content-center gap-3 fade-in" style="transition-delay:0.4s;">
             {% if not session.get('user_id') %}
             <a href="{{ url_for('register') }}" class="btn btn-light btn-lg px-4">
                 <i class="bi bi-person-plus"></i> Get Started
@@ -29,43 +30,66 @@
     </div>
 </section>
 
+<!-- Stats Counter Section -->
+<section class="stats-section mb-5 fade-in" style="margin-top:-2rem; position:relative; z-index:3;">
+    <div class="row text-center g-4">
+        <div class="col-6 col-md-3 stat-item">
+            <h2 class="counter" data-target="500">0</h2>
+            <p><i class="bi bi-people"></i> Active Farmers</p>
+        </div>
+        <div class="col-6 col-md-3 stat-item">
+            <h2 class="counter" data-target="1200">0</h2>
+            <p><i class="bi bi-flower2"></i> Crops Listed</p>
+        </div>
+        <div class="col-6 col-md-3 stat-item">
+            <h2 class="counter" data-target="95">0</h2>
+            <p><i class="bi bi-cpu"></i> AI Accuracy %</p>
+        </div>
+        <div class="col-6 col-md-3 stat-item">
+            <h2 class="counter" data-target="10000">0</h2>
+            <p><i class="bi bi-cart-check"></i> Orders Completed</p>
+        </div>
+    </div>
+</section>
+
 <!-- Feature Cards -->
 <section class="mb-5">
-    <h2 class="text-center mb-4">Why Choose HarvestHub?</h2>
+    <h2 class="text-center mb-2 fade-in" style="font-family:'Outfit',sans-serif;">Why Choose HarvestHub?</h2>
+    <p class="text-center text-muted mb-4 fade-in">Smart tools that empower every farmer and buyer</p>
     <div class="row g-4">
-        <div class="col-md-4">
-            <div class="card feature-card h-100 border-0 shadow-sm text-center p-4">
+        <div class="col-md-4 fade-in" style="transition-delay:0.1s;">
+            <div class="card feature-card h-100 border-0 text-center p-4">
                 <div class="card-body">
-                    <div class="feature-icon bg-success-subtle text-success rounded-circle mx-auto mb-3">
-                        <i class="bi bi-shop fs-1"></i>
+                    <div class="feature-icon mx-auto mb-3">
+                        <i class="bi bi-shop fs-1 text-success"></i>
                     </div>
-                    <h5 class="card-title">Direct Marketplace</h5>
+                    <h5 class="card-title" style="font-family:'Outfit',sans-serif;">Direct Marketplace</h5>
                     <p class="card-text text-muted">
                         Farmers sell directly to buyers — no middlemen, better prices for everyone.
                     </p>
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
-            <div class="card feature-card h-100 border-0 shadow-sm text-center p-4">
+        <div class="col-md-4 fade-in" style="transition-delay:0.25s;">
+            <div class="card feature-card h-100 border-0 text-center p-4">
                 <div class="card-body">
-                    <div class="feature-icon bg-warning-subtle text-warning rounded-circle mx-auto mb-3">
-                        <i class="bi bi-lightbulb fs-1"></i>
+                    <div class="feature-icon mx-auto mb-3">
+                        <i class="bi bi-lightbulb fs-1 text-warning"></i>
                     </div>
-                    <h5 class="card-title">AI Crop Recommendation</h5>
+                    <h5 class="card-title" style="font-family:'Outfit',sans-serif;">AI Crop Recommendation</h5>
                     <p class="card-text text-muted">
                         Get smart crop suggestions based on your soil, weather, and season.
                     </p>
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
-            <div class="card feature-card h-100 border-0 shadow-sm text-center p-4">
+        <div class="col-md-4 fade-in" style="transition-delay:0.4s;">
+            <div class="card feature-card h-100 border-0 text-center p-4">
                 <div class="card-body">
-                    <div class="feature-icon bg-info-subtle text-info rounded-circle mx-auto mb-3">
-                        <i class="bi bi-graph-up-arrow fs-1"></i>
+                    <div class="feature-icon mx-auto mb-3">
+                        <i class="bi bi-graph-up-arrow fs-1 text-info"></i>
                     </div>
-                    <h5 class="card-title">Price Prediction</h5>
+                    <h5 class="card-title" style="font-family:'Outfit',sans-serif;">Price Prediction</h5>
                     <p class="card-text text-muted">
                         Predict future crop prices using machine learning on historical data.
                     </p>
@@ -76,28 +100,30 @@
 </section>
 
 <!-- How It Works -->
-<section class="mb-5">
-    <h2 class="text-center mb-4">How It Works</h2>
-    <div class="row g-4 text-center">
-        <div class="col-md-3">
-            <div class="step-circle bg-success text-white mx-auto mb-3">1</div>
-            <h6>Register</h6>
-            <p class="text-muted small">Sign up as a Farmer or Buyer</p>
+<section class="mb-5 steps-section">
+    <h2 class="text-center mb-2 fade-in" style="font-family:'Outfit',sans-serif;">How It Works</h2>
+    <p class="text-center text-muted mb-4 fade-in">Four simple steps to transform your farming journey</p>
+    <div class="row g-4 text-center position-relative">
+        <div class="step-connector d-none d-md-block"></div>
+        <div class="col-6 col-md-3 fade-in" style="transition-delay:0.1s;">
+            <div class="step-circle mx-auto mb-3">1</div>
+            <h6 style="font-family:'Outfit',sans-serif; font-weight:700;">Register</h6>
+            <p class="text-muted small">Sign up as a Farmer or Buyer in seconds</p>
         </div>
-        <div class="col-md-3">
-            <div class="step-circle bg-success text-white mx-auto mb-3">2</div>
-            <h6>List / Browse</h6>
-            <p class="text-muted small">Farmers add crops, buyers browse</p>
+        <div class="col-6 col-md-3 fade-in" style="transition-delay:0.2s;">
+            <div class="step-circle mx-auto mb-3">2</div>
+            <h6 style="font-family:'Outfit',sans-serif; font-weight:700;">List / Browse</h6>
+            <p class="text-muted small">Farmers add crops, buyers explore the marketplace</p>
         </div>
-        <div class="col-md-3">
-            <div class="step-circle bg-success text-white mx-auto mb-3">3</div>
-            <h6>Get AI Insights</h6>
-            <p class="text-muted small">Recommendations & price predictions</p>
+        <div class="col-6 col-md-3 fade-in" style="transition-delay:0.3s;">
+            <div class="step-circle mx-auto mb-3">3</div>
+            <h6 style="font-family:'Outfit',sans-serif; font-weight:700;">Get AI Insights</h6>
+            <p class="text-muted small">Smart recommendations &amp; price predictions</p>
         </div>
-        <div class="col-md-3">
-            <div class="step-circle bg-success text-white mx-auto mb-3">4</div>
-            <h6>Trade</h6>
-            <p class="text-muted small">Place orders and track delivery</p>
+        <div class="col-6 col-md-3 fade-in" style="transition-delay:0.4s;">
+            <div class="step-circle mx-auto mb-3">4</div>
+            <h6 style="font-family:'Outfit',sans-serif; font-weight:700;">Trade</h6>
+            <p class="text-muted small">Place orders and track delivery seamlessly</p>
         </div>
     </div>
 </section>

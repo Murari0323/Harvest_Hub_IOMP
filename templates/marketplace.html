@@ -2,47 +2,51 @@
 {% block title %}Marketplace — HarvestHub{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h2><i class="bi bi-shop text-success"></i> Marketplace</h2>
-
-    <!-- Search -->
-    <form class="d-flex" action="{{ url_for('marketplace') }}" method="GET" style="max-width:350px;">
-        <input type="search" name="q" class="form-control me-2"
-               placeholder="Search crops…" value="{{ search }}" id="searchInput">
-        <button class="btn btn-outline-success" type="submit">
-            <i class="bi bi-search"></i>
-        </button>
-    </form>
+<!-- Page Header -->
+<div class="page-header mb-4 fade-in">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+        <h2><i class="bi bi-shop"></i> Marketplace</h2>
+        <!-- Search -->
+        <form class="search-glass" action="{{ url_for('marketplace') }}" method="GET" style="max-width:380px; min-width:280px;">
+            <input type="search" name="q" class="form-control"
+                   placeholder="Search crops…" value="{{ search }}" id="searchInput">
+            <button class="btn btn-light" type="submit">
+                <i class="bi bi-search text-success"></i>
+            </button>
+        </form>
+    </div>
 </div>
 
 {% if crops %}
 <div class="row g-4" id="cropGrid">
     {% for crop in crops %}
-    <div class="col-sm-6 col-md-4 col-lg-3 crop-card-col">
-        <div class="card crop-card h-100 border-0 shadow-sm">
+    <div class="col-sm-6 col-md-4 col-lg-3 crop-card-col fade-in" style="transition-delay:{{ loop.index0 * 0.08 }}s;">
+        <div class="card crop-card h-100 border-0">
             {% if crop.image_url %}
-            <img src="{{ crop.image_url }}" class="card-img-top" alt="{{ crop.crop_name }}"
-                 style="height:180px; object-fit:cover;">
+            <div style="overflow:hidden; border-radius: var(--hh-radius) var(--hh-radius) 0 0;">
+                <img src="{{ crop.image_url }}" class="card-img-top" alt="{{ crop.crop_name }}"
+                     style="height:180px; object-fit:cover;">
+            </div>
             {% else %}
-            <div class="card-img-top bg-success-subtle d-flex align-items-center justify-content-center"
-                 style="height:180px;">
-                <i class="bi bi-flower2 display-3 text-success"></i>
+            <div class="card-img-top d-flex align-items-center justify-content-center"
+                 style="height:180px; background: linear-gradient(135deg, rgba(29,185,84,0.1), rgba(212,168,67,0.1));">
+                <i class="bi bi-flower2 display-3 text-success" style="opacity:0.6;"></i>
             </div>
             {% endif %}
 
             <div class="card-body">
-                <h5 class="card-title">{{ crop.crop_name }}</h5>
+                <h5 class="card-title" style="font-family:'Outfit',sans-serif;">{{ crop.crop_name }}</h5>
                 <p class="text-muted small mb-1">
                     <i class="bi bi-person"></i> {{ crop.farmer_name }}
                     <span class="ms-2"><i class="bi bi-geo-alt"></i> {{ crop.farmer_location or 'N/A' }}</span>
                 </p>
                 <p class="mb-1">
-                    <span class="badge bg-success-subtle text-success">{{ crop.category }}</span>
+                    <span class="badge" style="background:rgba(29,185,84,0.1); color:var(--hh-green);">{{ crop.category }}</span>
                     {% if crop.season %}
-                    <span class="badge bg-warning-subtle text-warning">{{ crop.season }}</span>
+                    <span class="badge" style="background:rgba(212,168,67,0.15); color:#b8860b;">{{ crop.season }}</span>
                     {% endif %}
                 </p>
-                <p class="fw-bold text-success fs-5 mb-1">₹{{ crop.price }}/kg</p>
+                <p class="fw-bold fs-5 mb-1" style="color: var(--hh-green);">₹{{ crop.price }}/kg</p>
                 <p class="text-muted small mb-0">Available: {{ crop.quantity }} kg</p>
             </div>
 
@@ -57,8 +61,8 @@
     {% endfor %}
 </div>
 {% else %}
-<div class="alert alert-info text-center py-4">
-    <i class="bi bi-search display-6 d-block mb-2"></i>
+<div class="empty-state fade-in">
+    <i class="bi bi-search display-4 d-block mb-3"></i>
     <h5>No crops found{% if search %} for "{{ search }}"{% endif %}</h5>
     <p class="mb-0 text-muted">Check back later or try a different search term.</p>
 </div>

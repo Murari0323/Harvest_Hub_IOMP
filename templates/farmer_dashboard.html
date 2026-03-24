@@ -2,127 +2,171 @@
 {% block title %}Farmer Dashboard — HarvestHub{% endblock %}
 
 {% block content %}
-<h2 class="mb-4"><i class="bi bi-speedometer2 text-success"></i> Farmer Dashboard</h2>
+<!-- Page Header -->
+<div class="page-header mb-4 fade-in">
+    <h2><i class="bi bi-speedometer2"></i> Farmer Dashboard</h2>
+</div>
+
+<!-- Dashboard Stats -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md-3 fade-in" style="transition-delay:0.1s;">
+        <div class="dashboard-stat">
+            <i class="bi bi-flower2"></i>
+            <div class="stat-number">{{ crops|length if crops else 0 }}</div>
+            <div class="stat-label">Total Crops</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3 fade-in" style="transition-delay:0.15s;">
+        <div class="dashboard-stat">
+            <i class="bi bi-check-circle"></i>
+            <div class="stat-number">{{ crops|selectattr('status','equalto','available')|list|length if crops else 0 }}</div>
+            <div class="stat-label">Active</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3 fade-in" style="transition-delay:0.2s;">
+        <div class="dashboard-stat">
+            <i class="bi bi-box-seam"></i>
+            <div class="stat-number">{{ orders|length if orders else 0 }}</div>
+            <div class="stat-label">Orders</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3 fade-in" style="transition-delay:0.25s;">
+        <div class="dashboard-stat">
+            <i class="bi bi-graph-up-arrow"></i>
+            <div class="stat-number">₹{{ orders|sum(attribute='total_price')|int if orders else 0 }}</div>
+            <div class="stat-label">Revenue</div>
+        </div>
+    </div>
+</div>
 
 <!-- ── Crop Listings ──────────────────────────────────────── -->
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="mb-0">My Crop Listings</h4>
+<div class="d-flex justify-content-between align-items-center mb-3 fade-in">
+    <h4 class="mb-0" style="font-family:'Outfit',sans-serif;">My Crop Listings</h4>
     <a href="{{ url_for('add_crop') }}" class="btn btn-success">
         <i class="bi bi-plus-circle"></i> Add New Crop
     </a>
 </div>
 
 {% if crops %}
-<div class="table-responsive mb-5">
-    <table class="table table-hover align-middle" id="cropTable">
-        <thead class="table-success">
-            <tr>
-                <th>#</th>
-                <th>Crop Name</th>
-                <th>Category</th>
-                <th>Season</th>
-                <th>Qty (kg)</th>
-                <th>Price (₹/kg)</th>
-                <th>Status</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-        {% for crop in crops %}
-            <tr>
-                <td>{{ crop.crop_id }}</td>
-                <td><strong>{{ crop.crop_name }}</strong></td>
-                <td>{{ crop.category }}</td>
-                <td>{{ crop.season }}</td>
-                <td>{{ crop.quantity }}</td>
-                <td>₹{{ crop.price }}</td>
-                <td>
-                    <span class="badge {{ 'bg-success' if crop.status == 'available' else 'bg-secondary' }}">
-                        {{ crop.status }}
-                    </span>
-                </td>
-                <td>
-                    <a href="{{ url_for('edit_crop', crop_id=crop.crop_id) }}"
-                       class="btn btn-sm btn-outline-primary me-1" title="Edit">
-                        <i class="bi bi-pencil"></i>
-                    </a>
-                    <form method="POST" action="{{ url_for('delete_crop', crop_id=crop.crop_id) }}"
-                          class="d-inline delete-form">
-                        <button class="btn btn-sm btn-outline-danger" title="Delete">
-                            <i class="bi bi-trash"></i>
-                        </button>
-                    </form>
-                </td>
-            </tr>
-        {% endfor %}
-        </tbody>
-    </table>
+<div class="table-container mb-5 fade-in">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle" id="cropTable">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Crop Name</th>
+                    <th>Category</th>
+                    <th>Season</th>
+                    <th>Qty (kg)</th>
+                    <th>Price (₹/kg)</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for crop in crops %}
+                <tr>
+                    <td>{{ crop.crop_id }}</td>
+                    <td><strong>{{ crop.crop_name }}</strong></td>
+                    <td>{{ crop.category }}</td>
+                    <td>{{ crop.season }}</td>
+                    <td>{{ crop.quantity }}</td>
+                    <td>₹{{ crop.price }}</td>
+                    <td>
+                        <span class="badge {{ 'bg-success' if crop.status == 'available' else 'bg-secondary' }}">
+                            {{ crop.status }}
+                        </span>
+                    </td>
+                    <td>
+                        <a href="{{ url_for('edit_crop', crop_id=crop.crop_id) }}"
+                           class="btn btn-sm btn-outline-primary me-1" title="Edit">
+                            <i class="bi bi-pencil"></i>
+                        </a>
+                        <form method="POST" action="{{ url_for('delete_crop', crop_id=crop.crop_id) }}"
+                              class="d-inline delete-form">
+                            <button class="btn btn-sm btn-outline-danger" title="Delete">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
 </div>
 {% else %}
-<div class="alert alert-info">
-    <i class="bi bi-info-circle"></i>
-    You have no crop listings yet.
-    <a href="{{ url_for('add_crop') }}">Add your first crop!</a>
+<div class="empty-state mb-5 fade-in">
+    <i class="bi bi-flower2 display-4 d-block mb-2"></i>
+    <h5>No crop listings yet</h5>
+    <p class="text-muted mb-2">Start by adding your first crop to the marketplace.</p>
+    <a href="{{ url_for('add_crop') }}" class="btn btn-success">
+        <i class="bi bi-plus-circle"></i> Add Your First Crop
+    </a>
 </div>
 {% endif %}
 
 <!-- ── Received Orders ────────────────────────────────────── -->
-<h4 class="mb-3">Received Orders</h4>
+<h4 class="mb-3 fade-in" style="font-family:'Outfit',sans-serif;">Received Orders</h4>
 {% if orders %}
-<div class="table-responsive">
-    <table class="table table-hover align-middle">
-        <thead class="table-warning">
-            <tr>
-                <th>Order #</th>
-                <th>Crop</th>
-                <th>Buyer</th>
-                <th>Qty</th>
-                <th>Total ₹</th>
-                <th>Status</th>
-                <th>Date</th>
-                <th>Update</th>
-            </tr>
-        </thead>
-        <tbody>
-        {% for order in orders %}
-            <tr>
-                <td>{{ order.order_id }}</td>
-                <td>{{ order.crop_name }}</td>
-                <td>{{ order.buyer_name }}</td>
-                <td>{{ order.quantity }}</td>
-                <td>₹{{ order.total_price }}</td>
-                <td>
-                    <span class="badge
-                        {% if order.order_status == 'pending' %}bg-warning text-dark
-                        {% elif order.order_status == 'confirmed' %}bg-primary
-                        {% elif order.order_status == 'shipped' %}bg-info text-dark
-                        {% elif order.order_status == 'delivered' %}bg-success
-                        {% else %}bg-danger{% endif %}">
-                        {{ order.order_status }}
-                    </span>
-                </td>
-                <td>{{ order.order_date }}</td>
-                <td>
-                    <form method="POST"
-                          action="{{ url_for('update_order_status', order_id=order.order_id) }}"
-                          class="d-flex gap-1">
-                        <select name="status" class="form-select form-select-sm" style="width:auto;">
-                            <option value="confirmed">Confirm</option>
-                            <option value="shipped">Ship</option>
-                            <option value="delivered">Delivered</option>
-                            <option value="cancelled">Cancel</option>
-                        </select>
-                        <button class="btn btn-sm btn-outline-success">Go</button>
-                    </form>
-                </td>
-            </tr>
-        {% endfor %}
-        </tbody>
-    </table>
+<div class="table-container fade-in">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>Order #</th>
+                    <th>Crop</th>
+                    <th>Buyer</th>
+                    <th>Qty</th>
+                    <th>Total ₹</th>
+                    <th>Status</th>
+                    <th>Date</th>
+                    <th>Update</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for order in orders %}
+                <tr>
+                    <td>{{ order.order_id }}</td>
+                    <td>{{ order.crop_name }}</td>
+                    <td>{{ order.buyer_name }}</td>
+                    <td>{{ order.quantity }}</td>
+                    <td>₹{{ order.total_price }}</td>
+                    <td>
+                        <span class="badge
+                            {% if order.order_status == 'pending' %}bg-warning text-dark
+                            {% elif order.order_status == 'confirmed' %}bg-primary
+                            {% elif order.order_status == 'shipped' %}bg-info text-dark
+                            {% elif order.order_status == 'delivered' %}bg-success
+                            {% else %}bg-danger{% endif %}">
+                            {{ order.order_status }}
+                        </span>
+                    </td>
+                    <td>{{ order.order_date }}</td>
+                    <td>
+                        <form method="POST"
+                              action="{{ url_for('update_order_status', order_id=order.order_id) }}"
+                              class="d-flex gap-1">
+                            <select name="status" class="form-select form-select-sm" style="width:auto;">
+                                <option value="confirmed">Confirm</option>
+                                <option value="shipped">Ship</option>
+                                <option value="delivered">Delivered</option>
+                                <option value="cancelled">Cancel</option>
+                            </select>
+                            <button class="btn btn-sm btn-outline-success">Go</button>
+                        </form>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
 </div>
 {% else %}
-<div class="alert alert-secondary">
-    <i class="bi bi-inbox"></i> No orders received yet.
+<div class="empty-state fade-in">
+    <i class="bi bi-inbox display-4 d-block mb-2"></i>
+    <h5>No orders received yet</h5>
+    <p class="mb-0 text-muted">Orders will appear here once buyers start purchasing your crops.</p>
 </div>
 {% endif %}
 {% endblock %}

@@ -3,10 +3,10 @@
 
 {% block content %}
 <div class="row justify-content-center">
-    <div class="col-md-7 col-lg-6">
-        <div class="card shadow-sm border-0">
+    <div class="col-md-7 col-lg-6 fade-in">
+        <div class="card glass-card border-0">
             <div class="card-body p-4">
-                <h3 class="mb-4">
+                <h3 class="mb-4" style="font-family:'Outfit',sans-serif;">
                     <i class="bi bi-pencil text-primary"></i> Edit Crop
                 </h3>
 
@@ -71,7 +71,7 @@
                     </div>
 
                     <div class="d-flex gap-2">
-                        <button type="submit" class="btn btn-primary px-4">
+                        <button type="submit" class="btn btn-success px-4">
                             <i class="bi bi-save"></i> Save Changes
                         </button>
                         <a href="{{ url_for('farmer_dashboard') }}" class="btn btn-outline-secondary">
