@@ -1,0 +1,24 @@
+# render.yaml — Render Blueprint (Infrastructure as Code)
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: harvesthub
+    runtime: python
+    buildCommand: "chmod +x build.sh && ./build.sh"
+    startCommand: "gunicorn app:app --bind 0.0.0.0:$PORT --workers 2"
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: MYSQL_HOST
+        sync: false   # Set manually after creating MySQL
+      - key: MYSQL_PORT
+        sync: false
+      - key: MYSQL_USER
+        sync: false
+      - key: MYSQL_PASSWORD
+        sync: false
+      - key: MYSQL_DB
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.11.0
