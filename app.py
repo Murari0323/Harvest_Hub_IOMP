@@ -333,16 +333,47 @@ def update_order_status(order_id):
     """Farmer updates order status (confirm, ship, deliver, cancel)."""
     new_status = request.form['status']
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE orders SET order_status = %s "
-        "WHERE order_id = %s AND farmer_id = %s",
-        (new_status, order_id, session['user_id'])
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
-    flash(f'Order #{order_id} marked as {new_status}.', 'success')
+    cur = conn.cursor(dictionary=True)
+    try:
+        # Update the order status
+        cur.execute(
+            "UPDATE orders SET order_status = %s "
+            "WHERE order_id = %s AND farmer_id = %s",
+            (new_status, order_id, session['user_id'])
+        )
+
+        # If delivered, reduce crop quantity
+        if new_status == 'delivered':
+            # Fetch order details
+            cur.execute(
+                "SELECT crop_id, quantity FROM orders "
+                "WHERE order_id = %s AND farmer_id = %s",
+                (order_id, session['user_id'])
+            )
+            order = cur.fetchone()
+
+            if order:
+                # Subtract order qty from crop, ensure >= 0
+                cur.execute(
+                    "UPDATE crops SET quantity = GREATEST(quantity - %s, 0) "
+                    "WHERE crop_id = %s",
+                    (order['quantity'], order['crop_id'])
+                )
+                # If quantity is now 0, mark as sold out
+                cur.execute(
+                    "UPDATE crops SET status = 'sold_out' "
+                    "WHERE crop_id = %s AND quantity <= 0",
+                    (order['crop_id'],)
+                )
+
+        conn.commit()
+        flash(f'Order #{order_id} marked as {new_status}.', 'success')
+    except Exception as e:
+        conn.rollback()
+        flash(f'Failed to update order: {e}', 'danger')
+    finally:
+        cur.close()
+        conn.close()
     return redirect(url_for('farmer_orders'))
 
 
