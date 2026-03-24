@@ -7,10 +7,11 @@ Run with:  python app.py
 
 from flask import (Flask, render_template, request, redirect, url_for,
                    session, flash)
-from flask_mysqldb import MySQL
+import mysql.connector
+from mysql.connector import pooling
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
-import MySQLdb.cursors
+import os
 
 # ML modules
 from ml.recommender import recommend_crop
@@ -21,15 +22,45 @@ app = Flask(__name__)
 
 # Load config from config.py
 from config import Config
-app.config['SECRET_KEY']       = Config.SECRET_KEY
-app.config['MYSQL_HOST']       = Config.MYSQL_HOST
-app.config['MYSQL_PORT']       = Config.MYSQL_PORT
-app.config['MYSQL_USER']       = Config.MYSQL_USER
-app.config['MYSQL_PASSWORD']   = Config.MYSQL_PASSWORD
-app.config['MYSQL_DB']         = Config.MYSQL_DB
-app.config['MYSQL_CURSORCLASS'] = Config.MYSQL_CURSORCLASS
+app.config['SECRET_KEY'] = Config.SECRET_KEY
 
-mysql = MySQL(app)
+# ── Database Connection Pool (SSL-enabled for Aiven) ────────────
+db_config = {
+    'host':     Config.MYSQL_HOST,
+    'port':     Config.MYSQL_PORT,
+    'user':     Config.MYSQL_USER,
+    'password': Config.MYSQL_PASSWORD,
+    'database': Config.MYSQL_DB,
+}
+
+# Enable SSL only when not connecting to localhost (i.e. Aiven / remote)
+if Config.MYSQL_HOST not in ('localhost', '127.0.0.1'):
+    db_config['ssl_disabled'] = False
+    db_config['ssl_verify_cert'] = False
+
+# Create a connection pool for better reliability
+try:
+    connection_pool = pooling.MySQLConnectionPool(
+        pool_name="harvesthub_pool",
+        pool_size=5,
+        pool_reset_session=True,
+        **db_config
+    )
+except mysql.connector.Error as e:
+    print(f"[WARNING] Could not create connection pool at startup: {e}")
+    connection_pool = None
+
+
+def get_db():
+    """Get a database connection from the pool (or create a fresh one)."""
+    try:
+        if connection_pool:
+            return connection_pool.get_connection()
+    except mysql.connector.Error:
+        pass
+    # Fallback: create a standalone connection
+    return mysql.connector.connect(**db_config)
+
 
 # Pre-load ML models at startup
 with app.app_context():
@@ -91,24 +122,26 @@ def register():
         # Hash password
         hashed_pw = generate_password_hash(password)
 
-        cur = mysql.connection.cursor()
+        conn = get_db()
+        cur = conn.cursor()
         try:
             cur.execute(
                 "INSERT INTO users (name, email, password, role, location) "
                 "VALUES (%s, %s, %s, %s, %s)",
                 (name, email, hashed_pw, role, location)
             )
-            mysql.connection.commit()
+            conn.commit()
             flash('Registration successful! Please log in.', 'success')
             return redirect(url_for('login'))
         except Exception as e:
-            mysql.connection.rollback()
-            if 'Duplicate' in str(e):
+            conn.rollback()
+            if 'Duplicate' in str(e) or '1062' in str(e):
                 flash('Email already registered.', 'danger')
             else:
                 flash(f'Registration failed: {e}', 'danger')
         finally:
             cur.close()
+            conn.close()
 
     return render_template('register.html')
 
@@ -120,10 +153,12 @@ def login():
         email    = request.form['email']
         password = request.form['password']
 
-        cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+        conn = get_db()
+        cur = conn.cursor(dictionary=True)
         cur.execute("SELECT * FROM users WHERE email = %s", (email,))
         user = cur.fetchone()
         cur.close()
+        conn.close()
 
         if user and check_password_hash(user['password'], password):
             session['user_id']  = user['user_id']
@@ -160,7 +195,8 @@ def logout():
 @role_required('farmer')
 def farmer_dashboard():
     """Show the farmer's own crop listings and received orders."""
-    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+    conn = get_db()
+    cur = conn.cursor(dictionary=True)
 
     # Farmer's crops
     cur.execute("SELECT * FROM crops WHERE farmer_id = %s ORDER BY created_at DESC",
@@ -178,6 +214,7 @@ def farmer_dashboard():
     """, (session['user_id'],))
     orders = cur.fetchall()
     cur.close()
+    conn.close()
 
     return render_template('farmer_dashboard.html', crops=crops, orders=orders)
 
@@ -196,7 +233,8 @@ def add_crop():
         description = request.form.get('description', '')
         image_url   = request.form.get('image_url', '')
 
-        cur = mysql.connection.cursor()
+        conn = get_db()
+        cur = conn.cursor()
         cur.execute(
             "INSERT INTO crops (farmer_id, crop_name, quantity, price, "
             "category, season, description, image_url) "
@@ -204,8 +242,9 @@ def add_crop():
             (session['user_id'], crop_name, quantity, price,
              category, season, description, image_url)
         )
-        mysql.connection.commit()
+        conn.commit()
         cur.close()
+        conn.close()
         flash('Crop added successfully!', 'success')
         return redirect(url_for('farmer_dashboard'))
 
@@ -217,7 +256,8 @@ def add_crop():
 @role_required('farmer')
 def edit_crop(crop_id):
     """Edit an existing crop listing (only if owned by logged-in farmer)."""
-    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+    conn = get_db()
+    cur = conn.cursor(dictionary=True)
 
     if request.method == 'POST':
         cur.execute(
@@ -230,8 +270,9 @@ def edit_crop(crop_id):
              request.form.get('image_url', ''), request.form.get('status', 'available'),
              crop_id, session['user_id'])
         )
-        mysql.connection.commit()
+        conn.commit()
         cur.close()
+        conn.close()
         flash('Crop updated!', 'success')
         return redirect(url_for('farmer_dashboard'))
 
@@ -239,6 +280,7 @@ def edit_crop(crop_id):
                 (crop_id, session['user_id']))
     crop = cur.fetchone()
     cur.close()
+    conn.close()
 
     if not crop:
         flash('Crop not found.', 'danger')
@@ -252,11 +294,13 @@ def edit_crop(crop_id):
 @role_required('farmer')
 def delete_crop(crop_id):
     """Delete a crop listing."""
-    cur = mysql.connection.cursor()
+    conn = get_db()
+    cur = conn.cursor()
     cur.execute("DELETE FROM crops WHERE crop_id = %s AND farmer_id = %s",
                 (crop_id, session['user_id']))
-    mysql.connection.commit()
+    conn.commit()
     cur.close()
+    conn.close()
     flash('Crop deleted.', 'info')
     return redirect(url_for('farmer_dashboard'))
 
@@ -266,7 +310,8 @@ def delete_crop(crop_id):
 @role_required('farmer')
 def farmer_orders():
     """View orders received by the farmer."""
-    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+    conn = get_db()
+    cur = conn.cursor(dictionary=True)
     cur.execute("""
         SELECT o.*, c.crop_name, u.name AS buyer_name
         FROM orders o
@@ -277,6 +322,7 @@ def farmer_orders():
     """, (session['user_id'],))
     orders = cur.fetchall()
     cur.close()
+    conn.close()
     return render_template('orders.html', orders=orders, role='farmer')
 
 
@@ -286,14 +332,16 @@ def farmer_orders():
 def update_order_status(order_id):
     """Farmer updates order status (confirm, ship, deliver, cancel)."""
     new_status = request.form['status']
-    cur = mysql.connection.cursor()
+    conn = get_db()
+    cur = conn.cursor()
     cur.execute(
         "UPDATE orders SET order_status = %s "
         "WHERE order_id = %s AND farmer_id = %s",
         (new_status, order_id, session['user_id'])
     )
-    mysql.connection.commit()
+    conn.commit()
     cur.close()
+    conn.close()
     flash(f'Order #{order_id} marked as {new_status}.', 'success')
     return redirect(url_for('farmer_orders'))
 
@@ -306,7 +354,8 @@ def update_order_status(order_id):
 def marketplace():
     """Browse all available crops. Supports search via query param ?q=..."""
     search = request.args.get('q', '').strip()
-    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+    conn = get_db()
+    cur = conn.cursor(dictionary=True)
 
     if search:
         cur.execute("""
@@ -326,13 +375,15 @@ def marketplace():
 
     crops = cur.fetchall()
     cur.close()
+    conn.close()
     return render_template('marketplace.html', crops=crops, search=search)
 
 
 @app.route('/crop/<int:crop_id>')
 def crop_detail(crop_id):
     """View full details of a single crop listing."""
-    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+    conn = get_db()
+    cur = conn.cursor(dictionary=True)
     cur.execute("""
         SELECT c.*, u.name AS farmer_name, u.location AS farmer_location
         FROM crops c JOIN users u ON c.farmer_id = u.user_id
@@ -340,6 +391,7 @@ def crop_detail(crop_id):
     """, (crop_id,))
     crop = cur.fetchone()
     cur.close()
+    conn.close()
 
     if not crop:
         flash('Crop not found.', 'danger')
@@ -366,10 +418,12 @@ def add_to_cart(crop_id):
         cart[crop_key]['quantity'] += qty
     else:
         # Fetch crop details
-        cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+        conn = get_db()
+        cur = conn.cursor(dictionary=True)
         cur.execute("SELECT * FROM crops WHERE crop_id = %s", (crop_id,))
         crop = cur.fetchone()
         cur.close()
+        conn.close()
 
         if not crop:
             flash('Crop not found.', 'danger')
@@ -421,7 +475,8 @@ def place_order():
         flash('Your cart is empty.', 'warning')
         return redirect(url_for('view_cart'))
 
-    cur = mysql.connection.cursor()
+    conn = get_db()
+    cur = conn.cursor()
     try:
         for item in cart.values():
             total = item['price'] * item['quantity']
@@ -431,14 +486,15 @@ def place_order():
                 (session['user_id'], item['crop_id'],
                  item['farmer_id'], item['quantity'], total)
             )
-        mysql.connection.commit()
+        conn.commit()
         session.pop('cart', None)
         flash('Order placed successfully!', 'success')
     except Exception as e:
-        mysql.connection.rollback()
+        conn.rollback()
         flash(f'Order failed: {e}', 'danger')
     finally:
         cur.close()
+        conn.close()
 
     return redirect(url_for('buyer_orders'))
 
@@ -448,7 +504,8 @@ def place_order():
 @role_required('buyer')
 def buyer_orders():
     """View buyer's order history."""
-    cur = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+    conn = get_db()
+    cur = conn.cursor(dictionary=True)
     cur.execute("""
         SELECT o.*, c.crop_name, u.name AS farmer_name
         FROM orders o
@@ -459,6 +516,7 @@ def buyer_orders():
     """, (session['user_id'],))
     orders = cur.fetchall()
     cur.close()
+    conn.close()
     return render_template('orders.html', orders=orders, role='buyer')
 
 
@@ -480,15 +538,17 @@ def crop_recommendation():
         result = recommend_crop(soil, temperature, rainfall, season)
 
         # Log to database
-        cur = mysql.connection.cursor()
+        conn = get_db()
+        cur = conn.cursor()
         cur.execute(
             "INSERT INTO recommendations "
             "(soil_type, temperature, rainfall, season, recommended_crop) "
             "VALUES (%s, %s, %s, %s, %s)",
             (soil, temperature, rainfall, season, result['crop'])
         )
-        mysql.connection.commit()
+        conn.commit()
         cur.close()
+        conn.close()
 
     return render_template('recommend.html', result=result)
 
@@ -518,14 +578,16 @@ def price_prediction():
         }
 
         # Log to database
-        cur = mysql.connection.cursor()
+        conn = get_db()
+        cur = conn.cursor()
         cur.execute(
             "INSERT INTO predictions (crop_name, predicted_price, prediction_date) "
             "VALUES (%s, %s, %s)",
             (crop_name, predicted, f'{year}-{month:02d}-01')
         )
-        mysql.connection.commit()
+        conn.commit()
         cur.close()
+        conn.close()
 
     return render_template('predict.html', crops=crops, prediction=prediction)
 
