@@ -125,6 +125,7 @@ def register():
         cur = None
         try:
             conn = get_db_connection()
+            conn.ping(True)
             cur = conn.cursor()
             cur.execute(
                 "INSERT INTO users (name, email, password, role, location) "
@@ -135,13 +136,26 @@ def register():
             flash('Registration successful! Please log in.', 'success')
             return redirect(url_for('login'))
         except Exception as e:
-            if conn:
-                conn.rollback()
-            if 'Duplicate' in str(e) or '1062' in str(e):
-                flash('Email already registered.', 'danger')
-            else:
-                flash(f'Registration failed: {e}', 'danger')
-                logger.error(f"Registration Error: {e}")
+            logger.error(f"Registration Error DB: {e}. Retrying...")
+            try:
+                conn.ping(True)
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO users (name, email, password, role, location) "
+                    "VALUES (%s, %s, %s, %s, %s)",
+                    (name, email, hashed_pw, role, location)
+                )
+                conn.commit()
+                flash('Registration successful! Please log in.', 'success')
+                return redirect(url_for('login'))
+            except Exception as e2:
+                if conn:
+                    conn.rollback()
+                if 'Duplicate' in str(e2) or '1062' in str(e2):
+                    flash('Email already registered.', 'danger')
+                else:
+                    flash(f'Registration failed: {e2}', 'danger')
+                    logger.error(f"Registration Error Retry: {e2}")
         finally:
             if cur: cur.close()
             if conn and conn.is_connected(): conn.close()
@@ -158,32 +172,42 @@ def login():
 
         conn = None
         cur = None
+        user = None
+        
         try:
             conn = get_db_connection()
+            conn.ping(True)
             cur = conn.cursor(dictionary=True)
             cur.execute("SELECT * FROM users WHERE email = %s", (email,))
             user = cur.fetchone()
-
-            if user and check_password_hash(user['password'], password):
-                session['user_id']  = user['user_id']
-                session['name']     = user['name']
-                session['email']    = user['email']
-                session['role']     = user['role']
-                flash(f'Welcome back, {user["name"]}!', 'success')
-
-                # Redirect to the appropriate dashboard
-                if user['role'] == 'farmer':
-                    return redirect(url_for('farmer_dashboard'))
-                else:
-                    return redirect(url_for('marketplace'))
-            else:
-                flash('Invalid email or password.', 'danger')
         except Exception as e:
-            logger.error(f"Login Error: {e}")
-            flash('A database error occurred during login. Please try again.', 'danger')
+            logger.error(f"Login DB Error: {e}. Retrying...")
+            try:
+                conn.ping(True)
+                cur = conn.cursor(dictionary=True)
+                cur.execute("SELECT * FROM users WHERE email = %s", (email,))
+                user = cur.fetchone()
+            except Exception as e2:
+                logger.error(f"Login Retry Error: {e2}")
+                flash('A database error occurred during login. Please try again.', 'danger')
         finally:
             if cur: cur.close()
             if conn and conn.is_connected(): conn.close()
+
+        if user and check_password_hash(user['password'], password):
+            session['user_id']  = user['user_id']
+            session['name']     = user['name']
+            session['email']    = user['email']
+            session['role']     = user['role']
+            flash(f'Welcome back, {user["name"]}!', 'success')
+
+            # Redirect to the appropriate dashboard
+            if user['role'] == 'farmer':
+                return redirect(url_for('farmer_dashboard'))
+            else:
+                return redirect(url_for('marketplace'))
+        elif user is not None:
+            flash('Invalid email or password.', 'danger')
 
     return render_template('login.html')
 
@@ -212,6 +236,7 @@ def farmer_dashboard():
     
     try:
         conn = get_db_connection()
+        conn.ping(True)
         cur = conn.cursor(dictionary=True)
 
         # Farmer's crops
@@ -230,8 +255,29 @@ def farmer_dashboard():
         """, (session['user_id'],))
         orders = cur.fetchall()
     except Exception as e:
-        logger.error(f"Farmer Dashboard Error: {e}")
-        flash('Failed to load dashboard data.', 'danger')
+        logger.error(f"Farmer Dashboard DB Error: {e}. Retrying...")
+        try:
+            conn.ping(True)
+            cur = conn.cursor(dictionary=True)
+
+            # Farmer's crops
+            cur.execute("SELECT * FROM crops WHERE farmer_id = %s ORDER BY created_at DESC",
+                        (session['user_id'],))
+            crops = cur.fetchall()
+
+            # Orders received for this farmer's crops
+            cur.execute("""
+                SELECT o.*, c.crop_name, u.name AS buyer_name
+                FROM orders o
+                JOIN crops c ON o.crop_id = c.crop_id
+                JOIN users u ON o.buyer_id = u.user_id
+                WHERE o.farmer_id = %s
+                ORDER BY o.order_date DESC
+            """, (session['user_id'],))
+            orders = cur.fetchall()
+        except Exception as e2:
+            logger.error(f"Farmer Dashboard Retry Error: {e2}")
+            flash('Failed to load dashboard data.', 'danger')
     finally:
         if cur: cur.close()
         if conn and conn.is_connected(): conn.close()
@@ -257,6 +303,7 @@ def add_crop():
         cur = None
         try:
             conn = get_db_connection()
+            conn.ping(True)
             cur = conn.cursor()
             cur.execute(
                 "INSERT INTO crops (farmer_id, crop_name, quantity, price, "
@@ -269,9 +316,24 @@ def add_crop():
             flash('Crop added successfully!', 'success')
             return redirect(url_for('farmer_dashboard'))
         except Exception as e:
-            if conn: conn.rollback()
-            logger.error(f"Add Crop Error: {e}")
-            flash('Failed to add crop due to a database error.', 'danger')
+            logger.error(f"Add Crop DB Error: {e}. Retrying...")
+            try:
+                conn.ping(True)
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO crops (farmer_id, crop_name, quantity, price, "
+                    "category, season, description, image_url) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                    (session['user_id'], crop_name, quantity, price,
+                     category, season, description, image_url)
+                )
+                conn.commit()
+                flash('Crop added successfully!', 'success')
+                return redirect(url_for('farmer_dashboard'))
+            except Exception as e2:
+                if conn: conn.rollback()
+                logger.error(f"Add Crop Retry Error: {e2}")
+                flash('Failed to add crop due to a database error.', 'danger')
         finally:
             if cur: cur.close()
             if conn and conn.is_connected(): conn.close()
@@ -290,6 +352,7 @@ def edit_crop(crop_id):
 
     try:
         conn = get_db_connection()
+        conn.ping(True)
         cur = conn.cursor(dictionary=True)
 
         if request.method == 'POST':
@@ -311,9 +374,33 @@ def edit_crop(crop_id):
                     (crop_id, session['user_id']))
         crop = cur.fetchone()
     except Exception as e:
-        if conn and request.method == 'POST': conn.rollback()
-        logger.error(f"Edit Crop Error: {e}")
-        flash('Failed to access crop data.', 'danger')
+        logger.error(f"Edit Crop DB Error: {e}. Retrying...")
+        try:
+            conn.ping(True)
+            cur = conn.cursor(dictionary=True)
+
+            if request.method == 'POST':
+                cur.execute(
+                    "UPDATE crops SET crop_name=%s, quantity=%s, price=%s, "
+                    "category=%s, season=%s, description=%s, image_url=%s, status=%s "
+                    "WHERE crop_id=%s AND farmer_id=%s",
+                    (request.form['crop_name'], request.form['quantity'],
+                     request.form['price'], request.form.get('category', 'General'),
+                     request.form.get('season', ''), request.form.get('description', ''),
+                     request.form.get('image_url', ''), request.form.get('status', 'available'),
+                     crop_id, session['user_id'])
+                )
+                conn.commit()
+                flash('Crop updated!', 'success')
+                return redirect(url_for('farmer_dashboard'))
+
+            cur.execute("SELECT * FROM crops WHERE crop_id = %s AND farmer_id = %s",
+                        (crop_id, session['user_id']))
+            crop = cur.fetchone()
+        except Exception as e2:
+            if conn and request.method == 'POST': conn.rollback()
+            logger.error(f"Edit Crop Retry Error: {e2}")
+            flash('Failed to access crop data.', 'danger')
     finally:
         if cur: cur.close()
         if conn and conn.is_connected(): conn.close()
@@ -334,15 +421,25 @@ def delete_crop(crop_id):
     cur = None
     try:
         conn = get_db_connection()
+        conn.ping(True)
         cur = conn.cursor()
         cur.execute("DELETE FROM crops WHERE crop_id = %s AND farmer_id = %s",
                     (crop_id, session['user_id']))
         conn.commit()
         flash('Crop deleted.', 'info')
     except Exception as e:
-        if conn: conn.rollback()
-        logger.error(f"Delete Crop Error: {e}")
-        flash('Failed to delete crop.', 'danger')
+        logger.error(f"Delete Crop DB Error: {e}. Retrying...")
+        try:
+            conn.ping(True)
+            cur = conn.cursor()
+            cur.execute("DELETE FROM crops WHERE crop_id = %s AND farmer_id = %s",
+                        (crop_id, session['user_id']))
+            conn.commit()
+            flash('Crop deleted.', 'info')
+        except Exception as e2:
+            if conn: conn.rollback()
+            logger.error(f"Delete Crop Retry Error: {e2}")
+            flash('Failed to delete crop.', 'danger')
     finally:
         if cur: cur.close()
         if conn and conn.is_connected(): conn.close()
@@ -361,6 +458,7 @@ def farmer_orders():
 
     try:
         conn = get_db_connection()
+        conn.ping(True)
         cur = conn.cursor(dictionary=True)
         cur.execute("""
             SELECT o.*, c.crop_name, u.name AS buyer_name
@@ -372,8 +470,22 @@ def farmer_orders():
         """, (session['user_id'],))
         orders = cur.fetchall()
     except Exception as e:
-        logger.error(f"Farmer Orders Error: {e}")
-        flash('Failed to load orders.', 'danger')
+        logger.error(f"Farmer Orders DB Error: {e}. Retrying...")
+        try:
+            conn.ping(True)
+            cur = conn.cursor(dictionary=True)
+            cur.execute("""
+                SELECT o.*, c.crop_name, u.name AS buyer_name
+                FROM orders o
+                JOIN crops c ON o.crop_id = c.crop_id
+                JOIN users u ON o.buyer_id = u.user_id
+                WHERE o.farmer_id = %s
+                ORDER BY o.order_date DESC
+            """, (session['user_id'],))
+            orders = cur.fetchall()
+        except Exception as e2:
+            logger.error(f"Farmer Orders Retry Error: {e2}")
+            flash('Failed to load orders.', 'danger')
     finally:
         if cur: cur.close()
         if conn and conn.is_connected(): conn.close()
@@ -390,46 +502,49 @@ def update_order_status(order_id):
     conn = None
     cur = None
 
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor(dictionary=True)
-        # Update the order status
-        cur.execute(
+    def process_order_update(current_conn):
+        current_cur = current_conn.cursor(dictionary=True)
+        current_cur.execute(
             "UPDATE orders SET order_status = %s "
             "WHERE order_id = %s AND farmer_id = %s",
             (new_status, order_id, session['user_id'])
         )
-
-        # If delivered, reduce crop quantity
         if new_status == 'delivered':
-            # Fetch order details
-            cur.execute(
+            current_cur.execute(
                 "SELECT crop_id, quantity FROM orders "
                 "WHERE order_id = %s AND farmer_id = %s",
                 (order_id, session['user_id'])
             )
-            order = cur.fetchone()
-
+            order = current_cur.fetchone()
             if order:
-                # Subtract order qty from crop, ensure >= 0
-                cur.execute(
+                current_cur.execute(
                     "UPDATE crops SET quantity = GREATEST(quantity - %s, 0) "
                     "WHERE crop_id = %s",
                     (order['quantity'], order['crop_id'])
                 )
-                # If quantity is now 0, mark as sold out
-                cur.execute(
+                current_cur.execute(
                     "UPDATE crops SET status = 'sold_out' "
                     "WHERE crop_id = %s AND quantity <= 0",
                     (order['crop_id'],)
                 )
+        current_conn.commit()
+        return current_cur
 
-        conn.commit()
+    try:
+        conn = get_db_connection()
+        conn.ping(True)
+        cur = process_order_update(conn)
         flash(f'Order #{order_id} marked as {new_status}.', 'success')
     except Exception as e:
-        if conn: conn.rollback()
-        logger.error(f"Update Order Status Error: {e}")
-        flash(f'Failed to update order: {e}', 'danger')
+        logger.error(f"Update Order Status DB Error: {e}. Retrying...")
+        try:
+            conn.ping(True)
+            cur = process_order_update(conn)
+            flash(f'Order #{order_id} marked as {new_status}.', 'success')
+        except Exception as e2:
+            if conn: conn.rollback()
+            logger.error(f"Update Order Status Retry Error: {e2}")
+            flash(f'Failed to update order: {e2}', 'danger')
     finally:
         if cur: cur.close()
         if conn and conn.is_connected(): conn.close()
@@ -451,6 +566,7 @@ def marketplace():
 
     try:
         conn = get_db_connection()
+        conn.ping(True)
         cur = conn.cursor(dictionary=True)
 
         if search:
@@ -471,8 +587,31 @@ def marketplace():
 
         crops = cur.fetchall()
     except Exception as e:
-        logger.error(f"Marketplace Error: {e}")
-        flash('Failed to load marketplace products.', 'danger')
+        logger.error(f"Marketplace DB Error: {e}. Retrying...")
+        try:
+            conn.ping(True)
+            cur = conn.cursor(dictionary=True)
+
+            if search:
+                cur.execute("""
+                    SELECT c.*, u.name AS farmer_name, u.location AS farmer_location
+                    FROM crops c JOIN users u ON c.farmer_id = u.user_id
+                    WHERE c.status = 'available'
+                      AND (c.crop_name LIKE %s OR c.category LIKE %s)
+                    ORDER BY c.created_at DESC
+                """, (f'%{search}%', f'%{search}%'))
+            else:
+                cur.execute("""
+                    SELECT c.*, u.name AS farmer_name, u.location AS farmer_location
+                    FROM crops c JOIN users u ON c.farmer_id = u.user_id
+                    WHERE c.status = 'available'
+                    ORDER BY c.created_at DESC
+                """)
+
+            crops = cur.fetchall()
+        except Exception as e2:
+            logger.error(f"Marketplace Retry Error: {e2}")
+            flash('Failed to load marketplace products.', 'danger')
     finally:
         if cur: cur.close()
         if conn and conn.is_connected(): conn.close()
@@ -489,6 +628,7 @@ def crop_detail(crop_id):
 
     try:
         conn = get_db_connection()
+        conn.ping(True)
         cur = conn.cursor(dictionary=True)
         cur.execute("""
             SELECT c.*, u.name AS farmer_name, u.location AS farmer_location
@@ -497,8 +637,19 @@ def crop_detail(crop_id):
         """, (crop_id,))
         crop = cur.fetchone()
     except Exception as e:
-        logger.error(f"Crop Detail Error: {e}")
-        flash('Error fetching crop details.', 'danger')
+        logger.error(f"Crop Detail DB Error: {e}. Retrying...")
+        try:
+            conn.ping(True)
+            cur = conn.cursor(dictionary=True)
+            cur.execute("""
+                SELECT c.*, u.name AS farmer_name, u.location AS farmer_location
+                FROM crops c JOIN users u ON c.farmer_id = u.user_id
+                WHERE c.crop_id = %s
+            """, (crop_id,))
+            crop = cur.fetchone()
+        except Exception as e2:
+            logger.error(f"Crop Detail Retry Error: {e2}")
+            flash('Error fetching crop details.', 'danger')
     finally:
         if cur: cur.close()
         if conn and conn.is_connected(): conn.close()
@@ -533,6 +684,7 @@ def add_to_cart(crop_id):
         cur = None
         try:
             conn = get_db_connection()
+            conn.ping(True)
             cur = conn.cursor(dictionary=True)
             cur.execute("SELECT * FROM crops WHERE crop_id = %s", (crop_id,))
             crop = cur.fetchone()
@@ -551,8 +703,29 @@ def add_to_cart(crop_id):
             session['cart'] = cart
             flash('Added to cart!', 'success')
         except Exception as e:
-            logger.error(f"Add to Cart Error: {e}")
-            flash('Failed to add crop to cart due to a database error.', 'danger')
+            logger.error(f"Add to Cart DB Error: {e}. Retrying...")
+            try:
+                conn.ping(True)
+                cur = conn.cursor(dictionary=True)
+                cur.execute("SELECT * FROM crops WHERE crop_id = %s", (crop_id,))
+                crop = cur.fetchone()
+
+                if not crop:
+                    flash('Crop not found.', 'danger')
+                    return redirect(url_for('marketplace'))
+
+                cart[crop_key] = {
+                    'crop_id':   crop['crop_id'],
+                    'crop_name': crop['crop_name'],
+                    'price':     float(crop['price']),
+                    'quantity':  qty,
+                    'farmer_id': crop['farmer_id'],
+                }
+                session['cart'] = cart
+                flash('Added to cart!', 'success')
+            except Exception as e2:
+                logger.error(f"Add to Cart Retry Error: {e2}")
+                flash('Failed to add crop to cart due to a database error.', 'danger')
         finally:
             if cur: cur.close()
             if conn and conn.is_connected(): conn.close()
@@ -597,6 +770,7 @@ def place_order():
     cur = None
     try:
         conn = get_db_connection()
+        conn.ping(True)
         cur = conn.cursor()
         for item in cart.values():
             total = item['price'] * item['quantity']
@@ -610,9 +784,25 @@ def place_order():
         session.pop('cart', None)
         flash('Order placed successfully!', 'success')
     except Exception as e:
-        if conn: conn.rollback()
-        logger.error(f"Place Order Error: {e}")
-        flash(f'Order failed: {e}', 'danger')
+        logger.error(f"Place Order DB Error: {e}. Retrying...")
+        try:
+            conn.ping(True)
+            cur = conn.cursor()
+            for item in cart.values():
+                total = item['price'] * item['quantity']
+                cur.execute(
+                    "INSERT INTO orders (buyer_id, crop_id, farmer_id, "
+                    "quantity, total_price) VALUES (%s, %s, %s, %s, %s)",
+                    (session['user_id'], item['crop_id'],
+                     item['farmer_id'], item['quantity'], total)
+                )
+            conn.commit()
+            session.pop('cart', None)
+            flash('Order placed successfully!', 'success')
+        except Exception as e2:
+            if conn: conn.rollback()
+            logger.error(f"Place Order Retry Error: {e2}")
+            flash(f'Order failed: {e2}', 'danger')
     finally:
         if cur: cur.close()
         if conn and conn.is_connected(): conn.close()
@@ -631,6 +821,7 @@ def buyer_orders():
 
     try:
         conn = get_db_connection()
+        conn.ping(True)
         cur = conn.cursor(dictionary=True)
         cur.execute("""
             SELECT o.*, c.crop_name, u.name AS farmer_name
@@ -642,8 +833,22 @@ def buyer_orders():
         """, (session['user_id'],))
         orders = cur.fetchall()
     except Exception as e:
-        logger.error(f"Buyer Orders Error: {e}")
-        flash('Failed to load your orders.', 'danger')
+        logger.error(f"Buyer Orders DB Error: {e}. Retrying...")
+        try:
+            conn.ping(True)
+            cur = conn.cursor(dictionary=True)
+            cur.execute("""
+                SELECT o.*, c.crop_name, u.name AS farmer_name
+                FROM orders o
+                JOIN crops c ON o.crop_id = c.crop_id
+                JOIN users u ON o.farmer_id = u.user_id
+                WHERE o.buyer_id = %s
+                ORDER BY o.order_date DESC
+            """, (session['user_id'],))
+            orders = cur.fetchall()
+        except Exception as e2:
+            logger.error(f"Buyer Orders Retry Error: {e2}")
+            flash('Failed to load your orders.', 'danger')
     finally:
         if cur: cur.close()
         if conn and conn.is_connected(): conn.close()
@@ -673,6 +878,7 @@ def crop_recommendation():
         # Log to database
         try:
             conn = get_db_connection()
+            conn.ping(True)
             cur = conn.cursor()
             cur.execute(
                 "INSERT INTO recommendations "
@@ -682,9 +888,20 @@ def crop_recommendation():
             )
             conn.commit()
         except Exception as e:
-            if conn: conn.rollback()
-            logger.error(f"Recommendation DB Logging Error: {e}")
-            # Non-fatal error for recommendations, so we don't flash an error unless we want to
+            logger.warning(f"Recommendation Logging DB Error: {e}. Retrying...")
+            try:
+                conn.ping(True)
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO recommendations "
+                    "(soil_type, temperature, rainfall, season, recommended_crop) "
+                    "VALUES (%s, %s, %s, %s, %s)",
+                    (soil, temperature, rainfall, season, result['crop'])
+                )
+                conn.commit()
+            except Exception as e2:
+                if conn: conn.rollback()
+                logger.error(f"Recommendation DB Logging Retry Error: {e2}")
         finally:
             if cur: cur.close()
             if conn and conn.is_connected(): conn.close()
@@ -721,6 +938,7 @@ def price_prediction():
         # Log to database
         try:
             conn = get_db_connection()
+            conn.ping(True)
             cur = conn.cursor()
             cur.execute(
                 "INSERT INTO predictions (crop_name, predicted_price, prediction_date) "
@@ -729,8 +947,19 @@ def price_prediction():
             )
             conn.commit()
         except Exception as e:
-            if conn: conn.rollback()
-            logger.error(f"Prediction DB Logging Error: {e}")
+            logger.warning(f"Prediction Logging DB Error: {e}. Retrying...")
+            try:
+                conn.ping(True)
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO predictions (crop_name, predicted_price, prediction_date) "
+                    "VALUES (%s, %s, %s)",
+                    (crop_name, predicted, f'{year}-{month:02d}-01')
+                )
+                conn.commit()
+            except Exception as e2:
+                if conn: conn.rollback()
+                logger.error(f"Prediction DB Logging Retry Error: {e2}")
         finally:
             if cur: cur.close()
             if conn and conn.is_connected(): conn.close()
