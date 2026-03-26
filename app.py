@@ -8,10 +8,11 @@ Run with:  python app.py
 from flask import (Flask, render_template, request, redirect, url_for,
                    session, flash)
 import mysql.connector
-from mysql.connector import pooling
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 import os
+import logging
+import time
 
 # ML modules
 from ml.recommender import recommend_crop
@@ -24,7 +25,11 @@ app = Flask(__name__)
 from config import Config
 app.config['SECRET_KEY'] = Config.SECRET_KEY
 
-# ── Database Connection Pool (SSL-enabled for Aiven) ────────────
+# Configure logging for DB connection failures
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# ── Database Connection Setup (SSL-enabled for Aiven) ────────────
 db_config = {
     'host':     Config.MYSQL_HOST,
     'port':     Config.MYSQL_PORT,
@@ -38,28 +43,22 @@ if Config.MYSQL_HOST not in ('localhost', '127.0.0.1'):
     db_config['ssl_disabled'] = False
     db_config['ssl_verify_cert'] = False
 
-# Create a connection pool for better reliability
-try:
-    connection_pool = pooling.MySQLConnectionPool(
-        pool_name="harvesthub_pool",
-        pool_size=5,
-        pool_reset_session=True,
-        **db_config
-    )
-except mysql.connector.Error as e:
-    print(f"[WARNING] Could not create connection pool at startup: {e}")
-    connection_pool = None
 
-
-def get_db():
-    """Get a database connection from the pool (or create a fresh one)."""
-    try:
-        if connection_pool:
-            return connection_pool.get_connection()
-    except mysql.connector.Error:
-        pass
-    # Fallback: create a standalone connection
-    return mysql.connector.connect(**db_config)
+def get_db_connection(retries=3, delay=1):
+    """Create and return a fresh database connection per request with retries."""
+    attempt = 0
+    while attempt < retries:
+        try:
+            conn = mysql.connector.connect(**db_config)
+            if conn.is_connected():
+                return conn
+        except mysql.connector.Error as err:
+            logger.error(f"[DB Error] Connection failed (Attempt {attempt + 1}/{retries}): {err}")
+            attempt += 1
+            time.sleep(delay)
+    
+    logger.critical("[DB Error] All retries to connect to the database failed.")
+    raise mysql.connector.Error("Database connection failed after retries.")
 
 
 # Pre-load ML models at startup
@@ -122,9 +121,11 @@ def register():
         # Hash password
         hashed_pw = generate_password_hash(password)
 
-        conn = get_db()
-        cur = conn.cursor()
+        conn = None
+        cur = None
         try:
+            conn = get_db_connection()
+            cur = conn.cursor()
             cur.execute(
                 "INSERT INTO users (name, email, password, role, location) "
                 "VALUES (%s, %s, %s, %s, %s)",
@@ -134,14 +135,16 @@ def register():
             flash('Registration successful! Please log in.', 'success')
             return redirect(url_for('login'))
         except Exception as e:
-            conn.rollback()
+            if conn:
+                conn.rollback()
             if 'Duplicate' in str(e) or '1062' in str(e):
                 flash('Email already registered.', 'danger')
             else:
                 flash(f'Registration failed: {e}', 'danger')
+                logger.error(f"Registration Error: {e}")
         finally:
-            cur.close()
-            conn.close()
+            if cur: cur.close()
+            if conn and conn.is_connected(): conn.close()
 
     return render_template('register.html')
 
@@ -153,27 +156,34 @@ def login():
         email    = request.form['email']
         password = request.form['password']
 
-        conn = get_db()
-        cur = conn.cursor(dictionary=True)
-        cur.execute("SELECT * FROM users WHERE email = %s", (email,))
-        user = cur.fetchone()
-        cur.close()
-        conn.close()
+        conn = None
+        cur = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor(dictionary=True)
+            cur.execute("SELECT * FROM users WHERE email = %s", (email,))
+            user = cur.fetchone()
 
-        if user and check_password_hash(user['password'], password):
-            session['user_id']  = user['user_id']
-            session['name']     = user['name']
-            session['email']    = user['email']
-            session['role']     = user['role']
-            flash(f'Welcome back, {user["name"]}!', 'success')
+            if user and check_password_hash(user['password'], password):
+                session['user_id']  = user['user_id']
+                session['name']     = user['name']
+                session['email']    = user['email']
+                session['role']     = user['role']
+                flash(f'Welcome back, {user["name"]}!', 'success')
 
-            # Redirect to the appropriate dashboard
-            if user['role'] == 'farmer':
-                return redirect(url_for('farmer_dashboard'))
+                # Redirect to the appropriate dashboard
+                if user['role'] == 'farmer':
+                    return redirect(url_for('farmer_dashboard'))
+                else:
+                    return redirect(url_for('marketplace'))
             else:
-                return redirect(url_for('marketplace'))
-        else:
-            flash('Invalid email or password.', 'danger')
+                flash('Invalid email or password.', 'danger')
+        except Exception as e:
+            logger.error(f"Login Error: {e}")
+            flash('A database error occurred during login. Please try again.', 'danger')
+        finally:
+            if cur: cur.close()
+            if conn and conn.is_connected(): conn.close()
 
     return render_template('login.html')
 
@@ -195,26 +205,36 @@ def logout():
 @role_required('farmer')
 def farmer_dashboard():
     """Show the farmer's own crop listings and received orders."""
-    conn = get_db()
-    cur = conn.cursor(dictionary=True)
+    conn = None
+    cur = None
+    crops = []
+    orders = []
+    
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(dictionary=True)
 
-    # Farmer's crops
-    cur.execute("SELECT * FROM crops WHERE farmer_id = %s ORDER BY created_at DESC",
-                (session['user_id'],))
-    crops = cur.fetchall()
+        # Farmer's crops
+        cur.execute("SELECT * FROM crops WHERE farmer_id = %s ORDER BY created_at DESC",
+                    (session['user_id'],))
+        crops = cur.fetchall()
 
-    # Orders received for this farmer's crops
-    cur.execute("""
-        SELECT o.*, c.crop_name, u.name AS buyer_name
-        FROM orders o
-        JOIN crops c ON o.crop_id = c.crop_id
-        JOIN users u ON o.buyer_id = u.user_id
-        WHERE o.farmer_id = %s
-        ORDER BY o.order_date DESC
-    """, (session['user_id'],))
-    orders = cur.fetchall()
-    cur.close()
-    conn.close()
+        # Orders received for this farmer's crops
+        cur.execute("""
+            SELECT o.*, c.crop_name, u.name AS buyer_name
+            FROM orders o
+            JOIN crops c ON o.crop_id = c.crop_id
+            JOIN users u ON o.buyer_id = u.user_id
+            WHERE o.farmer_id = %s
+            ORDER BY o.order_date DESC
+        """, (session['user_id'],))
+        orders = cur.fetchall()
+    except Exception as e:
+        logger.error(f"Farmer Dashboard Error: {e}")
+        flash('Failed to load dashboard data.', 'danger')
+    finally:
+        if cur: cur.close()
+        if conn and conn.is_connected(): conn.close()
 
     return render_template('farmer_dashboard.html', crops=crops, orders=orders)
 
@@ -233,20 +253,28 @@ def add_crop():
         description = request.form.get('description', '')
         image_url   = request.form.get('image_url', '')
 
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO crops (farmer_id, crop_name, quantity, price, "
-            "category, season, description, image_url) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-            (session['user_id'], crop_name, quantity, price,
-             category, season, description, image_url)
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
-        flash('Crop added successfully!', 'success')
-        return redirect(url_for('farmer_dashboard'))
+        conn = None
+        cur = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO crops (farmer_id, crop_name, quantity, price, "
+                "category, season, description, image_url) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (session['user_id'], crop_name, quantity, price,
+                 category, season, description, image_url)
+            )
+            conn.commit()
+            flash('Crop added successfully!', 'success')
+            return redirect(url_for('farmer_dashboard'))
+        except Exception as e:
+            if conn: conn.rollback()
+            logger.error(f"Add Crop Error: {e}")
+            flash('Failed to add crop due to a database error.', 'danger')
+        finally:
+            if cur: cur.close()
+            if conn and conn.is_connected(): conn.close()
 
     return render_template('add_crop.html')
 
@@ -256,34 +284,42 @@ def add_crop():
 @role_required('farmer')
 def edit_crop(crop_id):
     """Edit an existing crop listing (only if owned by logged-in farmer)."""
-    conn = get_db()
-    cur = conn.cursor(dictionary=True)
+    conn = None
+    cur = None
+    crop = None
 
-    if request.method == 'POST':
-        cur.execute(
-            "UPDATE crops SET crop_name=%s, quantity=%s, price=%s, "
-            "category=%s, season=%s, description=%s, image_url=%s, status=%s "
-            "WHERE crop_id=%s AND farmer_id=%s",
-            (request.form['crop_name'], request.form['quantity'],
-             request.form['price'], request.form.get('category', 'General'),
-             request.form.get('season', ''), request.form.get('description', ''),
-             request.form.get('image_url', ''), request.form.get('status', 'available'),
-             crop_id, session['user_id'])
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
-        flash('Crop updated!', 'success')
-        return redirect(url_for('farmer_dashboard'))
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(dictionary=True)
 
-    cur.execute("SELECT * FROM crops WHERE crop_id = %s AND farmer_id = %s",
-                (crop_id, session['user_id']))
-    crop = cur.fetchone()
-    cur.close()
-    conn.close()
+        if request.method == 'POST':
+            cur.execute(
+                "UPDATE crops SET crop_name=%s, quantity=%s, price=%s, "
+                "category=%s, season=%s, description=%s, image_url=%s, status=%s "
+                "WHERE crop_id=%s AND farmer_id=%s",
+                (request.form['crop_name'], request.form['quantity'],
+                 request.form['price'], request.form.get('category', 'General'),
+                 request.form.get('season', ''), request.form.get('description', ''),
+                 request.form.get('image_url', ''), request.form.get('status', 'available'),
+                 crop_id, session['user_id'])
+            )
+            conn.commit()
+            flash('Crop updated!', 'success')
+            return redirect(url_for('farmer_dashboard'))
 
-    if not crop:
-        flash('Crop not found.', 'danger')
+        cur.execute("SELECT * FROM crops WHERE crop_id = %s AND farmer_id = %s",
+                    (crop_id, session['user_id']))
+        crop = cur.fetchone()
+    except Exception as e:
+        if conn and request.method == 'POST': conn.rollback()
+        logger.error(f"Edit Crop Error: {e}")
+        flash('Failed to access crop data.', 'danger')
+    finally:
+        if cur: cur.close()
+        if conn and conn.is_connected(): conn.close()
+
+    if not crop and request.method == 'GET':
+        flash('Crop not found or you lack permission.', 'danger')
         return redirect(url_for('farmer_dashboard'))
 
     return render_template('edit_crop.html', crop=crop)
@@ -294,14 +330,23 @@ def edit_crop(crop_id):
 @role_required('farmer')
 def delete_crop(crop_id):
     """Delete a crop listing."""
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM crops WHERE crop_id = %s AND farmer_id = %s",
-                (crop_id, session['user_id']))
-    conn.commit()
-    cur.close()
-    conn.close()
-    flash('Crop deleted.', 'info')
+    conn = None
+    cur = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM crops WHERE crop_id = %s AND farmer_id = %s",
+                    (crop_id, session['user_id']))
+        conn.commit()
+        flash('Crop deleted.', 'info')
+    except Exception as e:
+        if conn: conn.rollback()
+        logger.error(f"Delete Crop Error: {e}")
+        flash('Failed to delete crop.', 'danger')
+    finally:
+        if cur: cur.close()
+        if conn and conn.is_connected(): conn.close()
+        
     return redirect(url_for('farmer_dashboard'))
 
 
@@ -310,19 +355,29 @@ def delete_crop(crop_id):
 @role_required('farmer')
 def farmer_orders():
     """View orders received by the farmer."""
-    conn = get_db()
-    cur = conn.cursor(dictionary=True)
-    cur.execute("""
-        SELECT o.*, c.crop_name, u.name AS buyer_name
-        FROM orders o
-        JOIN crops c ON o.crop_id = c.crop_id
-        JOIN users u ON o.buyer_id = u.user_id
-        WHERE o.farmer_id = %s
-        ORDER BY o.order_date DESC
-    """, (session['user_id'],))
-    orders = cur.fetchall()
-    cur.close()
-    conn.close()
+    conn = None
+    cur = None
+    orders = []
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(dictionary=True)
+        cur.execute("""
+            SELECT o.*, c.crop_name, u.name AS buyer_name
+            FROM orders o
+            JOIN crops c ON o.crop_id = c.crop_id
+            JOIN users u ON o.buyer_id = u.user_id
+            WHERE o.farmer_id = %s
+            ORDER BY o.order_date DESC
+        """, (session['user_id'],))
+        orders = cur.fetchall()
+    except Exception as e:
+        logger.error(f"Farmer Orders Error: {e}")
+        flash('Failed to load orders.', 'danger')
+    finally:
+        if cur: cur.close()
+        if conn and conn.is_connected(): conn.close()
+
     return render_template('orders.html', orders=orders, role='farmer')
 
 
@@ -332,9 +387,12 @@ def farmer_orders():
 def update_order_status(order_id):
     """Farmer updates order status (confirm, ship, deliver, cancel)."""
     new_status = request.form['status']
-    conn = get_db()
-    cur = conn.cursor(dictionary=True)
+    conn = None
+    cur = None
+
     try:
+        conn = get_db_connection()
+        cur = conn.cursor(dictionary=True)
         # Update the order status
         cur.execute(
             "UPDATE orders SET order_status = %s "
@@ -369,11 +427,13 @@ def update_order_status(order_id):
         conn.commit()
         flash(f'Order #{order_id} marked as {new_status}.', 'success')
     except Exception as e:
-        conn.rollback()
+        if conn: conn.rollback()
+        logger.error(f"Update Order Status Error: {e}")
         flash(f'Failed to update order: {e}', 'danger')
     finally:
-        cur.close()
-        conn.close()
+        if cur: cur.close()
+        if conn and conn.is_connected(): conn.close()
+        
     return redirect(url_for('farmer_orders'))
 
 
@@ -385,44 +445,63 @@ def update_order_status(order_id):
 def marketplace():
     """Browse all available crops. Supports search via query param ?q=..."""
     search = request.args.get('q', '').strip()
-    conn = get_db()
-    cur = conn.cursor(dictionary=True)
+    conn = None
+    cur = None
+    crops = []
 
-    if search:
-        cur.execute("""
-            SELECT c.*, u.name AS farmer_name, u.location AS farmer_location
-            FROM crops c JOIN users u ON c.farmer_id = u.user_id
-            WHERE c.status = 'available'
-              AND (c.crop_name LIKE %s OR c.category LIKE %s)
-            ORDER BY c.created_at DESC
-        """, (f'%{search}%', f'%{search}%'))
-    else:
-        cur.execute("""
-            SELECT c.*, u.name AS farmer_name, u.location AS farmer_location
-            FROM crops c JOIN users u ON c.farmer_id = u.user_id
-            WHERE c.status = 'available'
-            ORDER BY c.created_at DESC
-        """)
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(dictionary=True)
 
-    crops = cur.fetchall()
-    cur.close()
-    conn.close()
+        if search:
+            cur.execute("""
+                SELECT c.*, u.name AS farmer_name, u.location AS farmer_location
+                FROM crops c JOIN users u ON c.farmer_id = u.user_id
+                WHERE c.status = 'available'
+                  AND (c.crop_name LIKE %s OR c.category LIKE %s)
+                ORDER BY c.created_at DESC
+            """, (f'%{search}%', f'%{search}%'))
+        else:
+            cur.execute("""
+                SELECT c.*, u.name AS farmer_name, u.location AS farmer_location
+                FROM crops c JOIN users u ON c.farmer_id = u.user_id
+                WHERE c.status = 'available'
+                ORDER BY c.created_at DESC
+            """)
+
+        crops = cur.fetchall()
+    except Exception as e:
+        logger.error(f"Marketplace Error: {e}")
+        flash('Failed to load marketplace products.', 'danger')
+    finally:
+        if cur: cur.close()
+        if conn and conn.is_connected(): conn.close()
+
     return render_template('marketplace.html', crops=crops, search=search)
 
 
 @app.route('/crop/<int:crop_id>')
 def crop_detail(crop_id):
     """View full details of a single crop listing."""
-    conn = get_db()
-    cur = conn.cursor(dictionary=True)
-    cur.execute("""
-        SELECT c.*, u.name AS farmer_name, u.location AS farmer_location
-        FROM crops c JOIN users u ON c.farmer_id = u.user_id
-        WHERE c.crop_id = %s
-    """, (crop_id,))
-    crop = cur.fetchone()
-    cur.close()
-    conn.close()
+    conn = None
+    cur = None
+    crop = None
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(dictionary=True)
+        cur.execute("""
+            SELECT c.*, u.name AS farmer_name, u.location AS farmer_location
+            FROM crops c JOIN users u ON c.farmer_id = u.user_id
+            WHERE c.crop_id = %s
+        """, (crop_id,))
+        crop = cur.fetchone()
+    except Exception as e:
+        logger.error(f"Crop Detail Error: {e}")
+        flash('Error fetching crop details.', 'danger')
+    finally:
+        if cur: cur.close()
+        if conn and conn.is_connected(): conn.close()
 
     if not crop:
         flash('Crop not found.', 'danger')
@@ -447,29 +526,37 @@ def add_to_cart(crop_id):
 
     if crop_key in cart:
         cart[crop_key]['quantity'] += qty
+        session['cart'] = cart
+        flash('Cart updated!', 'success')
     else:
-        # Fetch crop details
-        conn = get_db()
-        cur = conn.cursor(dictionary=True)
-        cur.execute("SELECT * FROM crops WHERE crop_id = %s", (crop_id,))
-        crop = cur.fetchone()
-        cur.close()
-        conn.close()
+        conn = None
+        cur = None
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor(dictionary=True)
+            cur.execute("SELECT * FROM crops WHERE crop_id = %s", (crop_id,))
+            crop = cur.fetchone()
 
-        if not crop:
-            flash('Crop not found.', 'danger')
-            return redirect(url_for('marketplace'))
+            if not crop:
+                flash('Crop not found.', 'danger')
+                return redirect(url_for('marketplace'))
 
-        cart[crop_key] = {
-            'crop_id':   crop['crop_id'],
-            'crop_name': crop['crop_name'],
-            'price':     float(crop['price']),
-            'quantity':  qty,
-            'farmer_id': crop['farmer_id'],
-        }
+            cart[crop_key] = {
+                'crop_id':   crop['crop_id'],
+                'crop_name': crop['crop_name'],
+                'price':     float(crop['price']),
+                'quantity':  qty,
+                'farmer_id': crop['farmer_id'],
+            }
+            session['cart'] = cart
+            flash('Added to cart!', 'success')
+        except Exception as e:
+            logger.error(f"Add to Cart Error: {e}")
+            flash('Failed to add crop to cart due to a database error.', 'danger')
+        finally:
+            if cur: cur.close()
+            if conn and conn.is_connected(): conn.close()
 
-    session['cart'] = cart
-    flash('Added to cart!', 'success')
     return redirect(url_for('marketplace'))
 
 
@@ -506,9 +593,11 @@ def place_order():
         flash('Your cart is empty.', 'warning')
         return redirect(url_for('view_cart'))
 
-    conn = get_db()
-    cur = conn.cursor()
+    conn = None
+    cur = None
     try:
+        conn = get_db_connection()
+        cur = conn.cursor()
         for item in cart.values():
             total = item['price'] * item['quantity']
             cur.execute(
@@ -521,11 +610,12 @@ def place_order():
         session.pop('cart', None)
         flash('Order placed successfully!', 'success')
     except Exception as e:
-        conn.rollback()
+        if conn: conn.rollback()
+        logger.error(f"Place Order Error: {e}")
         flash(f'Order failed: {e}', 'danger')
     finally:
-        cur.close()
-        conn.close()
+        if cur: cur.close()
+        if conn and conn.is_connected(): conn.close()
 
     return redirect(url_for('buyer_orders'))
 
@@ -535,19 +625,29 @@ def place_order():
 @role_required('buyer')
 def buyer_orders():
     """View buyer's order history."""
-    conn = get_db()
-    cur = conn.cursor(dictionary=True)
-    cur.execute("""
-        SELECT o.*, c.crop_name, u.name AS farmer_name
-        FROM orders o
-        JOIN crops c ON o.crop_id = c.crop_id
-        JOIN users u ON o.farmer_id = u.user_id
-        WHERE o.buyer_id = %s
-        ORDER BY o.order_date DESC
-    """, (session['user_id'],))
-    orders = cur.fetchall()
-    cur.close()
-    conn.close()
+    conn = None
+    cur = None
+    orders = []
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(dictionary=True)
+        cur.execute("""
+            SELECT o.*, c.crop_name, u.name AS farmer_name
+            FROM orders o
+            JOIN crops c ON o.crop_id = c.crop_id
+            JOIN users u ON o.farmer_id = u.user_id
+            WHERE o.buyer_id = %s
+            ORDER BY o.order_date DESC
+        """, (session['user_id'],))
+        orders = cur.fetchall()
+    except Exception as e:
+        logger.error(f"Buyer Orders Error: {e}")
+        flash('Failed to load your orders.', 'danger')
+    finally:
+        if cur: cur.close()
+        if conn and conn.is_connected(): conn.close()
+
     return render_template('orders.html', orders=orders, role='buyer')
 
 
@@ -568,18 +668,26 @@ def crop_recommendation():
 
         result = recommend_crop(soil, temperature, rainfall, season)
 
+        conn = None
+        cur = None
         # Log to database
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO recommendations "
-            "(soil_type, temperature, rainfall, season, recommended_crop) "
-            "VALUES (%s, %s, %s, %s, %s)",
-            (soil, temperature, rainfall, season, result['crop'])
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO recommendations "
+                "(soil_type, temperature, rainfall, season, recommended_crop) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                (soil, temperature, rainfall, season, result['crop'])
+            )
+            conn.commit()
+        except Exception as e:
+            if conn: conn.rollback()
+            logger.error(f"Recommendation DB Logging Error: {e}")
+            # Non-fatal error for recommendations, so we don't flash an error unless we want to
+        finally:
+            if cur: cur.close()
+            if conn and conn.is_connected(): conn.close()
 
     return render_template('recommend.html', result=result)
 
@@ -608,17 +716,24 @@ def price_prediction():
             'price': predicted,
         }
 
+        conn = None
+        cur = None
         # Log to database
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO predictions (crop_name, predicted_price, prediction_date) "
-            "VALUES (%s, %s, %s)",
-            (crop_name, predicted, f'{year}-{month:02d}-01')
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO predictions (crop_name, predicted_price, prediction_date) "
+                "VALUES (%s, %s, %s)",
+                (crop_name, predicted, f'{year}-{month:02d}-01')
+            )
+            conn.commit()
+        except Exception as e:
+            if conn: conn.rollback()
+            logger.error(f"Prediction DB Logging Error: {e}")
+        finally:
+            if cur: cur.close()
+            if conn and conn.is_connected(): conn.close()
 
     return render_template('predict.html', crops=crops, prediction=prediction)
 
